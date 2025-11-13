@@ -1,5 +1,5 @@
 // usuarios-service/models/usuariosModel.js
-import supabase from '../config/database.js';
+import supabase from '../config/db.js';
 
 class UsuariosModel {
   
