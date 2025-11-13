@@ -1,66 +1,182 @@
-import { supabase } from "../config/db.js";
+// usuarios-service/models/usuariosModel.js
+import supabase from '../config/database.js';
 
-/**
- * Crea un nuevo usuario en la tabla 'usuarios'
- * @param {Object} userData - Datos del usuario
- */
-export const createUser = async (userData) => {
-  const { cedula, correo, nombre, telefono } = userData;
-
-  // validación básica
-  if (!correo || !cedula) {
-    throw new Error("El correo y la cédula son obligatorios");
+class UsuariosModel {
+  
+  // Obtener todos los usuarios activos
+  static async getAll() {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('*')
+      .eq('estado', 'activo')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
   }
 
-  // inserción en la tabla usuarios
-  const { data, error } = await supabase
-    .from("usuarios")
-    .insert([{ correo, cedula, nombre, telefono }])
-    .select();
+  // Obtener todos incluyendo suspendidos
+  static async getAllWithSuspended() {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data || [];
+  }
 
-  if (error) throw new Error(error.message);
-  return data[0];
-};
+  // Obtener usuario por ID
+  static async getById(id) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    
+    if (error) throw error;
+    return data;
+  }
 
-/**
- * Busca un usuario en la base de datos por correo o cédula
- * @param {string} identificador - correo o cédula
- */
-export const findUserByIdentificador = async (identificador) => {
-  const { data, error } = await supabase
-    .from("usuarios")
-    .select("*")
-    .or(`correo.eq.${identificador},cedula.eq.${identificador}`)
-    .limit(1);
+  // Obtener usuario por correo
+  static async getByEmail(correo) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('*')
+      .eq('correo', correo)
+      .maybeSingle();
+    
+    if (error) throw error;
+    return data;
+  }
 
-  if (error) throw new Error(error.message);
-  return data[0]; // devuelve un solo usuario o undefined
-};
+  // Obtener usuario por cédula
+  static async getByCedula(cedula) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('*')
+      .eq('cedula', cedula)
+      .maybeSingle();
+    
+    if (error) throw error;
+    return data;
+  }
 
-/**
- * Asigna un rol a un usuario
- * @param {string} usuarioId - ID del usuario
- * @param {string} rolNombre - Nombre del rol (ej: 'adminbrigadas', 'brigadista', 'adminpro')
- */
-export const assignRoleToUser = async (usuarioId, rolNombre) => {
-  // 1️⃣ Buscamos el rol por nombre en la tabla 'roles'
-  const { data: rolData, error: rolError } = await supabase
-    .from("roles")
-    .select("id")
-    .eq("nombre", rolNombre)
-    .single();
+  // Obtener usuarios por rol
+  static async getByRol(rol) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('*')
+      .eq('rol', rol)
+      .eq('estado', 'activo')
+      .order('nombre', { ascending: true });
+    
+    if (error) throw error;
+    return data || [];
+  }
 
-  if (rolError || !rolData) throw new Error("Rol no encontrado");
+  // Crear usuario
+  static async create(usuario) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .insert([{
+        id: usuario.id,
+        cedula: usuario.cedula,
+        correo: usuario.correo,
+        nombre: usuario.nombre,
+        telefono: usuario.telefono || null,
+        rol: usuario.rol,
+        estado: 'activo'
+      }])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  }
 
-  const rolId = rolData.id;
+  // Actualizar usuario
+  static async update(id, updates) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  }
 
-  // 2️⃣ Insertamos la relación en 'usuario_roles'
-  const { error: insertError } = await supabase
-    .from("usuario_roles")
-    .insert([{ usuario_id: usuarioId, rol_id: rolId }]);
+  // Suspender usuario (soft delete)
+  static async suspend(id) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .update({
+        estado: 'suspendido',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  }
 
-  if (insertError) throw new Error(insertError.message);
+  // Activar usuario
+  static async activate(id) {
+    const { data, error } = await supabase
+      .from('usuarios')
+      .update({
+        estado: 'activo',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  }
 
-  return { message: "Rol asignado correctamente" };
-};
+  // Eliminar físicamente (solo casos extremos)
+  static async delete(id) {
+    const { error } = await supabase
+      .from('usuarios')
+      .delete()
+      .eq('id', id);
+    
+    if (error) throw error;
+    return true;
+  }
 
+  // Contar usuarios por rol
+  static async contarPorRol(rol) {
+    const { count, error } = await supabase
+      .from('usuarios')
+      .select('*', { count: 'exact', head: true })
+      .eq('rol', rol)
+      .eq('estado', 'activo');
+    
+    if (error) throw error;
+    return count || 0;
+  }
+
+  // Estadísticas
+  static async getEstadisticas() {
+    const adminPro = await this.contarPorRol('AdminPro');
+    const adminBrigadas = await this.contarPorRol('AdminBrigadas');
+
+    return {
+      adminPro,
+      adminBrigadas,
+      total: adminPro + adminBrigadas
+    };
+  }
+}
+
+export default UsuariosModel;
