@@ -1,21 +1,19 @@
 import express from "express";
-import { registerUser, loginUser, assignRole } from "../controllers/userController.js";
-import { verificarToken } from "../middlewares/authMiddleware.js";
+import {
+  registerUser,
+  loginUser,
+  assignRole,
+  deactivateUser,
+} from "../controllers/userController.js";
 
 const router = express.Router();
 
-// 🔹 Registro
+// Rutas principales
 router.post("/register", registerUser);
-
-// 🔹 Login
 router.post("/login", loginUser);
-
-// 🔹 Asignar rol
 router.post("/roles/asignar", assignRole);
 
-// 🔹 Ruta protegida de prueba
-router.get("/perfil", verificarToken, (req, res) => {
-  res.json({ message: "Acceso autorizado ✅", user: req.user });
-});
+// Nueva ruta para desactivar usuario (borrado lógico)
+router.delete("/deactivate/:id", deactivateUser);
 
 export default router;
