@@ -1,15 +1,10 @@
-// usuarios-service/controllers/usuariosController.js
+// IFN-AUTH/src/controllers/usuariosController.js
 import UsuariosModel from '../models/usuariosModel.js';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+import { supabase } from '../config/db.js';
 
 class UsuariosController {
 
-  // GET /api/usuarios - Obtener todos los usuarios
+  // GET /api/users - Obtener todos los usuarios
   static async getAll(req, res) {
     try {
       const usuarios = await UsuariosModel.getAll();
@@ -20,7 +15,7 @@ class UsuariosController {
     }
   }
 
-  // GET /api/usuarios/:id - Obtener usuario por ID
+  // GET /api/users/:id - Obtener usuario por ID
   static async getById(req, res) {
     try {
       const { id } = req.params;
@@ -37,7 +32,7 @@ class UsuariosController {
     }
   }
 
-  // GET /api/usuarios/correo/:correo - Obtener usuario por correo
+  // GET /api/users/correo/:correo - Obtener usuario por correo
   static async getByEmail(req, res) {
     try {
       const { correo } = req.params;
@@ -54,7 +49,7 @@ class UsuariosController {
     }
   }
 
-  // GET /api/usuarios/rol/:rol - Obtener usuarios por rol
+  // GET /api/users/rol/:rol - Obtener usuarios por rol
   static async getByRol(req, res) {
     try {
       const { rol } = req.params;
@@ -73,7 +68,7 @@ class UsuariosController {
     }
   }
 
-  // POST /api/usuarios - Crear usuario (AdminPro o AdminBrigadas)
+  // POST /api/users - Crear usuario (AdminPro o AdminBrigadas)
   static async create(req, res) {
     try {
       const { correo, cedula, nombre, telefono, rol } = req.body;
@@ -128,8 +123,10 @@ class UsuariosController {
         rol
       });
 
-      // Enviar email de invitación
-      const { error: emailError } = await supabase.auth.admin.inviteUserByEmail(correo);
+      // Enviar email de invitación (magic link)
+      const { error: emailError } = await supabase.auth.admin.inviteUserByEmail(correo, {
+        redirectTo: `${process.env.FRONTEND_URL}/auth/callback`
+      });
       
       if (emailError) {
         console.warn('⚠️ Error enviando invitación:', emailError.message);
@@ -146,7 +143,7 @@ class UsuariosController {
     }
   }
 
-  // PUT /api/usuarios/:id - Actualizar usuario
+  // PUT /api/users/:id - Actualizar usuario
   static async update(req, res) {
     try {
       const { id } = req.params;
@@ -171,12 +168,12 @@ class UsuariosController {
 
       const usuarioActualizado = await UsuariosModel.update(id, updates);
 
-      // Actualizar metadata en Supabase Auth si cambió nombre
-      if (updates.nombre) {
+      // Actualizar metadata en Supabase Auth
+      if (updates.nombre || updates.rol) {
         await supabase.auth.admin.updateUserById(id, {
           user_metadata: {
-            nombre_completo: updates.nombre,
-            rol: usuarioActualizado.rol
+            nombre_completo: updates.nombre || usuarioActualizado.nombre,
+            rol: updates.rol || usuarioActualizado.rol
           }
         }).catch(err => console.warn('⚠️ Error actualizando Auth:', err.message));
       }
@@ -192,7 +189,7 @@ class UsuariosController {
     }
   }
 
-  // PUT /api/usuarios/:id/suspender - Suspender usuario
+  // PUT /api/users/:id/suspender - Suspender usuario
   static async suspend(req, res) {
     try {
       const { id } = req.params;
@@ -210,7 +207,7 @@ class UsuariosController {
 
       // Deshabilitar en Auth
       await supabase.auth.admin.updateUserById(id, {
-        ban_duration: '876000h' // 100 años (prácticamente permanente)
+        ban_duration: '876000h' // 100 años
       }).catch(err => console.warn('⚠️ Error suspendiendo en Auth:', err.message));
 
       res.json({
@@ -224,7 +221,7 @@ class UsuariosController {
     }
   }
 
-  // PUT /api/usuarios/:id/activar - Activar usuario
+  // PUT /api/users/:id/activar - Activar usuario
   static async activate(req, res) {
     try {
       const { id } = req.params;
@@ -256,7 +253,7 @@ class UsuariosController {
     }
   }
 
-  // DELETE /api/usuarios/:id - Eliminar usuario permanentemente
+  // DELETE /api/users/:id - Eliminar usuario permanentemente
   static async delete(req, res) {
     try {
       const { id } = req.params;
@@ -289,26 +286,47 @@ class UsuariosController {
     }
   }
 
-  // POST /api/usuarios/login - Login (verificación)
+  // POST /api/users/login - Login con Supabase (solo verificación)
   static async login(req, res) {
     try {
-      const { correo } = req.body;
+      const { correo, password } = req.body;
       
-      if (!correo) {
-        return res.status(400).json({ error: 'Correo requerido' });
+      if (!correo || !password) {
+        return res.status(400).json({ 
+          error: 'Correo y contraseña requeridos' 
+        });
       }
 
+      // Autenticar con Supabase Auth
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: correo,
+        password: password
+      });
+
+      if (error) {
+        return res.status(401).json({ 
+          error: 'Credenciales inválidas',
+          message: error.message
+        });
+      }
+
+      // Obtener datos adicionales del usuario desde la BD
       const usuario = await UsuariosModel.getByEmail(correo);
       
       if (!usuario) {
-        return res.status(404).json({ error: 'Usuario no encontrado' });
+        return res.status(404).json({ error: 'Usuario no encontrado en la base de datos' });
       }
 
       if (usuario.estado === 'suspendido') {
-        return res.status(403).json({ error: 'Usuario suspendido. Contacta al administrador.' });
+        return res.status(403).json({ 
+          error: 'Usuario suspendido. Contacta al administrador.' 
+        });
       }
 
+      // Supabase ya generó el JWT, lo devolvemos
       res.json({ 
+        message: 'Login exitoso',
+        session: data.session,
         user: {
           id: usuario.id,
           correo: usuario.correo,
@@ -316,8 +334,7 @@ class UsuariosController {
           nombre: usuario.nombre,
           telefono: usuario.telefono,
           rol: usuario.rol,
-          estado: usuario.estado,
-          created_at: usuario.created_at
+          estado: usuario.estado
         }
       });
     } catch (error) {
@@ -326,7 +343,7 @@ class UsuariosController {
     }
   }
 
-  // GET /api/usuarios/estadisticas - Estadísticas de usuarios
+  // GET /api/users/estadisticas/resumen - Estadísticas de usuarios
   static async getEstadisticas(req, res) {
     try {
       const estadisticas = await UsuariosModel.getEstadisticas();

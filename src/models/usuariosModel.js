@@ -1,5 +1,5 @@
 // usuarios-service/models/usuariosModel.js
-import supabase from '../config/db.js';
+import { supabase } from '../config/db.js';
 
 class UsuariosModel {
   
@@ -143,7 +143,7 @@ class UsuariosModel {
     return data;
   }
 
-  // Eliminar físicamente (solo casos extremos)
+  // Eliminar físicamente
   static async delete(id) {
     const { error } = await supabase
       .from('usuarios')
